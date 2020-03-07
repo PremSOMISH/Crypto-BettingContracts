@@ -19,9 +19,9 @@ import "./Agree.sol";
 import "./Disagree.sol";
 import "./BetData.sol";
 import "./BetContract.sol";
+import "./Iupgradable.sol";
 
-
-contract BetKaroNaa {
+contract BetKaroNaa is Iupgradable {
     using SafeMath for uint;
 
     BetData bd;
@@ -32,15 +32,18 @@ contract BetKaroNaa {
       uint _startTime,
       uint _predictionValue,
       string memory _feedSource
-      ) public {
+      ) public onlyOwner {
 
-        require(msg.sender == bd.owner());
         Agree _agree = new Agree();
         Disagree _disagree = new Disagree();
         uint _expireTime = _startTime.add(bd.betTimeline(_betType));
-        BetContract betCon = new BetContract(bd.minBet(), bd.maxBet(), _agree, _disagree, _question, _betType, _startTime, _expireTime, _predictionValue, _feedSource);
+        BetContract betCon = new BetContract(bd.minBet(), bd.maxBet(), _agree, _disagree, _question, _betType, _startTime, _expireTime, _predictionValue, _feedSource, address(bd));
         bd.pushBet(address(betCon));
         bd.updateRecentBetTypeExpire(_betType);
+    }
+
+    function changeDependentContractAddress() public onlyInternal {
+      bd = BetData(ms.getLatestAddress("BD"));
     }
     
 }

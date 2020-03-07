@@ -16,14 +16,14 @@
 pragma solidity 0.5.7;
 
 import "./external/openzeppelin-solidity/math/SafeMath.sol";
+import "./Iupgradable.sol";
 
 
-contract BetData {
+contract BetData is Iupgradable {
     using SafeMath for uint;
 
     uint public minBet;
     uint public maxBet;
-    address public owner;
 
     enum BetStatus {NotStarted, InProgress, Ended}
     enum BetType {Invalid, Low, Medium, High}
@@ -34,26 +34,23 @@ contract BetData {
 
     mapping(uint => uint) public betTimeline;
     uint[] recentBetTypeExpire;
+    mapping(address => bool) private isBetAdd;
 
     event BetQuestion(uint indexed betId, string question, uint betType);
-    constructor(address _owner) public {
+    event BetClosed(uint indexed _type, address betId);
+    constructor() public {
         minBet = 10 ** 18;
         maxBet = 10 ** 19;
         betTimeline[1] = 30 * 1 minutes;
         betTimeline[2] = 1 * 1 days;
         betTimeline[3] = 5 * 1 days;
-        owner = _owner;
         allBets.push(address(0));
-    }
-
-    modifier onlyOwner() {
-        require(msg.sender == owner);
-        _;
     }
 
     function pushBet(address _betAddress) public {
         
         allBets.push(_betAddress);
+        isBetAdd[_betAddress] = true;
     }
 
     function getAllBetsLen() public view returns(uint)
@@ -81,6 +78,15 @@ contract BetData {
     function getRecentBetTypeExpire() public view returns(uint[] memory)
     {
         return recentBetTypeExpire;
+    }
+
+    function callCloseBetEvent(uint _type) public {
+        require(isBetAdd[msg.sender]);
+        emit BetClosed(_type, msg.sender);
+    }
+
+    function changeDependentContractAddress() public onlyInternal {
+
     }
     
 

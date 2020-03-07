@@ -17,7 +17,7 @@ pragma solidity 0.5.7;
 
 import "./Agree.sol";
 import "./Disagree.sol";
-// import "./BetData.sol";
+import "./BetData.sol";
 
 
 contract BetContract {
@@ -36,6 +36,9 @@ contract BetContract {
 
     uint public minBet;
     uint public maxBet;
+    bool public betClosed;
+    uint public totalSupplyAtClosing;
+    BetData bd;
     // address public owner;
     // uint public tokenExponent;
 
@@ -45,9 +48,17 @@ contract BetContract {
     // mapping(address => bool) public userVotedForBet;
     mapping(address => uint) public userBettingPointsInFavour;
     mapping(address => uint) public userBettingPointsAgainst;
+    mapping(address => bool) public userClaimedReward;
+    uint public result;
     // uint public betTimeline;
 
     event BetQuestion(address indexed betId, string question, uint betType);
+
+    event Bet(address indexed _user, uint _betAmount, bool _prediction);
+
+    // event CloseBet(address indexed _user, uint _betAmount, bool _prediction);
+
+    // event Claimed();
 
     constructor(
       uint _minBet,
@@ -59,8 +70,9 @@ contract BetContract {
       uint _startTime,
       uint _expireTime,
       uint _predictionValue,
-      string memory _feedSource
-      ) 
+      string memory _feedSource,
+      address bdAdd
+    ) 
     public 
     {
       minBet = _minBet;
@@ -72,6 +84,9 @@ contract BetContract {
       expireTime = _expireTime;
       PredictionValue = _predictionValue;
       FeedSource = _feedSource;
+      agreeToken.changeOperator(address(this));
+      disagreeToken.changeOperator(address(this));
+      bd = BetData(bdAdd);
       emit BetQuestion(address(this), _question, _betType);
     }
 
@@ -93,19 +108,39 @@ contract BetContract {
     }
 
     function placeBet(bool _prediction) public payable {
-
+      require(now >= startTime && now <= expireTime);
+      require(msg.value >= minBet && msg.value <= maxBet);
       uint tokenPrice = getPrice(_prediction);
       uint betValue = uint(msg.value).mul(10**18).div(tokenPrice);
       if(_prediction)
       {
+        require(userBettingPointsInFavour[msg.sender] == 0);
         agreeToken.mint(msg.sender, betValue);
         userBettingPointsInFavour[msg.sender] = betValue;
       } else {
+        require(userBettingPointsAgainst[msg.sender] == 0);
         disagreeToken.mint(msg.sender, betValue);
         userBettingPointsAgainst[msg.sender] = betValue;
       }
- 
+      emit Bet(msg.sender, betValue, _prediction);
+    }
 
+    function closeBet(uint _value) public {
+      require(msg.sender == address(0)); // have to replace with oracalize address.
+      require(now > expireTime);
+      require(!betClosed);
+      // send all money other than reward to -> pool
+      betClosed = true;
+      if(_value > PredictionValue)
+      {
+        totalSupplyAtClosing = agreeToken.totalSupply();
+        result = 1;
+      } else {
+        totalSupplyAtClosing = disagreeToken.totalSupply();
+        result = 0;
+      }
+
+      bd.callCloseBetEvent(betType); 
 
     }
     
