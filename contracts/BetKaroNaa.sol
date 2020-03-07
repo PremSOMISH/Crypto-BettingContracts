@@ -18,13 +18,31 @@ pragma solidity 0.5.7;
 import "./Agree.sol";
 import "./Disagree.sol";
 import "./BetData.sol";
+import "./BetContract.sol";
 
 
 contract BetKaroNaa {
     using SafeMath for uint;
 
-    function addBet() public {
-        
+    BetData bd;
+
+    function addNewBet( 
+      string memory _question, 
+      uint _betType,
+      uint _startTime,
+      uint _predictionValue,
+      string memory _feedSource
+      ) public {
+
+        require(msg.sender == bd.owner());
+        Agree _agree = new Agree();
+        Disagree _disagree = new Disagree();
+        uint _expireTime = _startTime.add(bd.betTimeline(_betType));
+        BetContract betCon = new BetContract(bd.minBet(), bd.maxBet(), _agree, _disagree, _question, _betType, _startTime, _expireTime, _predictionValue, _feedSource);
+        bd.pushBet(address(betCon));
+        bd.updateRecentBetTypeExpire(_betType);
     }
     
 }
+
+
