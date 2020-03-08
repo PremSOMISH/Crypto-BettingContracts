@@ -1,26 +1,11 @@
-/* Copyright (C) 2017 NexusMutual.io
-
-  This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-    along with this program.  If not, see http://www.gnu.org/licenses/ */
-
 pragma solidity 0.5.7;
 
 import "./Agree.sol";
 import "./Disagree.sol";
 import "./BetData.sol";
+import "./external/oraclize/ethereum-api/provableAPI_0.5.sol";
 
-
-contract BetContract {
+contract BetContract is usingProvable {
     using SafeMath for uint;
 
 
@@ -30,8 +15,11 @@ contract BetContract {
     string public FeedSource;
     uint public betType;
 
+    string public stockName;
+
     Agree public agreeToken;
     Disagree public disagreeToken;
+    address payable public AdminAccount;
 
 
     uint public minBet;
@@ -39,17 +27,13 @@ contract BetContract {
     bool public betClosed;
     uint public totalSupplyAtClosing;
     BetData bd;
-    // address public owner;
-    // uint public tokenExponent;
+    uint cx1000;
 
-    // enum BetType {Invalid, Low, Medium, High}
-
-    // uint public poolStrength;
-    // mapping(address => bool) public userVotedForBet;
     mapping(address => uint) public userBettingPointsInFavour;
     mapping(address => uint) public userBettingPointsAgainst;
     mapping(address => bool) public userClaimedReward;
     uint public result;
+    uint rewardToDistribute;
     // uint public betTimeline;
 
     event BetQuestion(address indexed betId, string question, uint betType);
@@ -58,8 +42,7 @@ contract BetContract {
 
     // event CloseBet(address indexed _user, uint _betAmount, bool _prediction);
 
-    // event Claimed();
-
+    event Claimed(address _user, uint _reward);
     constructor(
       uint _minBet,
       uint _maxBet,
@@ -71,9 +54,11 @@ contract BetContract {
       uint _expireTime,
       uint _predictionValue,
       string memory _feedSource,
-      address bdAdd
+      address bdAdd,
+      address payable _admin
     ) 
-    public 
+    public
+    payable 
     {
       minBet = _minBet;
       maxBet = _maxBet;
@@ -87,24 +72,28 @@ contract BetContract {
       agreeToken.changeOperator(address(this));
       disagreeToken.changeOperator(address(this));
       bd = BetData(bdAdd);
+      AdminAccount = _admin;
+      cx1000 = 6;
+      stockName = _question;
+      provable_query(_expireTime.sub(now), "URL", _feedSource, 500000);
       emit BetQuestion(address(this), _question, _betType);
     }
 
     function getPrice(bool prediction) public view returns(uint) {
-      // uint getA;
-      // uint getC;
-      // uint getCAAvgRate;
-      // uint max = (mcrtp.mul(mcrtp).mul(mcrtp).mul(mcrtp));
-      // uint max = mcrtp ** tokenExponent;
-      // uint dividingFactor = tokenExponent.mul(4); 
-      // // (getA, getC, getCAAvgRate) = pd.getTokenPriceDetails(_curr);
-      // uint mcrEth = address(this);
-      // // getC = getC.mul(DECIMAL1E18);
-      // tokenPrice = (mcrEth.mul(DECIMAL1E18).mul(max).div(getC)).div(10 ** dividingFactor);
-      // tokenPrice = tokenPrice.add(getA.mul(DECIMAL1E18).div(DECIMAL1E05));
-      // // tokenPrice = tokenPrice.mul(getCAAvgRate * 10); 
-      // tokenPrice = (tokenPrice).div(10**3);
-      return 1;
+
+      uint TS;
+      if(prediction) {
+        TS = agreeToken.totalSupply();
+      } else {
+        TS = disagreeToken.totalSupply();
+      }
+      if(TS.div(1000) > 10 ** 18)
+        TS = uint(1000).mul(10 ** 18);
+      uint val = (cx1000.add(1000)).mul(TS).div(100);
+      if(val < 10 ** 15)
+        val = 10 ** 15;
+
+      return val.div(10 ** 6);
     }
 
     function placeBet(bool _prediction) public payable {
@@ -125,12 +114,13 @@ contract BetContract {
       emit Bet(msg.sender, betValue, _prediction);
     }
 
-    function closeBet(uint _value) public {
-      require(msg.sender == address(0)); // have to replace with oracalize address.
+    function _closeBet(uint _value) internal {
+      
       require(now > expireTime);
       require(!betClosed);
-      // send all money other than reward to -> pool
       betClosed = true;
+      AdminAccount.transfer(uint(address(this).balance).mul(3).div(100));
+      rewardToDistribute = address(this).balance;
       if(_value > PredictionValue)
       {
         totalSupplyAtClosing = agreeToken.totalSupply();
@@ -142,6 +132,40 @@ contract BetContract {
 
       bd.callCloseBetEvent(betType); 
 
+    }
+
+    function claimReward() public {
+      require(!userClaimedReward[msg.sender] && betClosed);
+      userClaimedReward[msg.sender] = true;
+      uint userPoints;
+      if(result == 0) {
+        userPoints = userBettingPointsAgainst[msg.sender];
+      } else if(result == 1) {
+        userPoints = userBettingPointsInFavour[msg.sender];
+      }
+      require(userPoints > 0);
+      uint reward = rewardToDistribute.mul(userPoints).div(totalSupplyAtClosing);
+      (msg.sender).transfer(reward);
+      
+      uint agreeTok = agreeToken.balanceOf(msg.sender);
+      if(agreeTok > 0)
+      {
+        agreeToken.forceBurn(msg.sender, agreeTok);
+      }
+      uint disAgreeTok = disagreeToken.balanceOf(msg.sender);
+      if(disAgreeTok > 0)
+      {
+        disagreeToken.forceBurn(msg.sender, disAgreeTok);
+      }
+      emit Claimed(msg.sender, reward);
+
+    }
+
+    function __callback(bytes32 myid, string memory result, bytes memory proof) public{
+        
+        if (msg.sender != provable_cbAddress()) revert();
+        uint resultVal = safeParseInt(result);
+        _closeBet(resultVal);
     }
     
 }

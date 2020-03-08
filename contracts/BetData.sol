@@ -1,18 +1,3 @@
-/* Copyright (C) 2017 NexusMutual.io
-
-  This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-    along with this program.  If not, see http://www.gnu.org/licenses/ */
-
 pragma solidity 0.5.7;
 
 import "./external/openzeppelin-solidity/math/SafeMath.sol";
@@ -30,27 +15,31 @@ contract BetData is Iupgradable {
 
     address[] public allBets;
 
-
-
+    address[] cbs;
     mapping(uint => uint) public betTimeline;
     uint[] recentBetTypeExpire;
     mapping(address => bool) private isBetAdd;
 
-    event BetQuestion(uint indexed betId, string question, uint betType);
+    event BetQuestion(address indexed betId, string question, uint betType);
     event BetClosed(uint indexed _type, address betId);
     constructor() public {
-        minBet = 10 ** 18;
-        maxBet = 10 ** 19;
-        betTimeline[1] = 30 * 1 minutes;
-        betTimeline[2] = 1 * 1 days;
-        betTimeline[3] = 5 * 1 days;
+        minBet = 10 ** 16;
+        maxBet = 5 * 10 ** 15;
+        betTimeline[0] = 30 * 60;
+        betTimeline[1] = 1 * 1 days;
+        betTimeline[2] = 5 * 1 days;
         allBets.push(address(0));
+        recentBetTypeExpire.push(0);
+        recentBetTypeExpire.push(0);
+        recentBetTypeExpire.push(0);
+
     }
 
-    function pushBet(address _betAddress) public {
+    function pushBet(address _betAddress, string memory _question, uint _type) public {
         
         allBets.push(_betAddress);
         isBetAdd[_betAddress] = true;
+        emit BetQuestion(_betAddress, _question, _type);
     }
 
     function getAllBetsLen() public view returns(uint)
@@ -80,8 +69,14 @@ contract BetData is Iupgradable {
         return recentBetTypeExpire;
     }
 
+    function getAllClosedBets() public view returns(address[] memory)
+    {
+        return cbs;
+    }
+
     function callCloseBetEvent(uint _type) public {
         require(isBetAdd[msg.sender]);
+        cbs.push(msg.sender);
         emit BetClosed(_type, msg.sender);
     }
 
